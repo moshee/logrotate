@@ -20,7 +20,7 @@ func init() {
 	log.SetPrefix(os.Args[0] + ": ")
 
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: <process that outputs to stdout> | logrotate [-t] <filename>")
+		fmt.Fprintln(os.Stderr, "Usage: <process that outputs to stdout> | logrotate [-t] [-c <N>] <filename>")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
