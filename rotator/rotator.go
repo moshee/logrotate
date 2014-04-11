@@ -10,8 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
-	"time"
 )
 
 // A Rotator reads log lines from an input source and writes them to a file,
@@ -80,11 +80,29 @@ func (r *Rotator) Close() error {
 }
 
 func (r *Rotator) rotate() error {
-	basename := strings.TrimSuffix(filepath.Base(r.filename), filepath.Ext(r.filename))
 	dir := filepath.Dir(r.filename)
 
-	now := time.Now()
-	arcName := fmt.Sprintf("%s %s.%3d.gz", basename, now.Format("2006-01-02 15.04.05"), now.Nanosecond()/int(1e6))
+	existing, err := filepath.Glob(filepath.Join(dir, r.filename+".*.gz"))
+	if err != nil {
+		return err
+	}
+
+	maxNum := 0
+	for _, name := range existing {
+		parts := strings.Split(name, ".")
+		if len(parts) < 3 {
+			continue
+		}
+		num, err := strconv.Atoi(parts[len(parts)-2])
+		if err != nil {
+			continue
+		}
+		if num > maxNum {
+			maxNum = num
+		}
+	}
+
+	arcName := fmt.Sprintf("%s.%d.gz", r.filename, maxNum+1)
 	arcPath := filepath.Join(dir, arcName)
 
 	arc, err := os.OpenFile(arcPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
