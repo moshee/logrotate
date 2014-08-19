@@ -81,8 +81,8 @@ func (r *Rotator) Close() error {
 
 func (r *Rotator) rotate() error {
 	dir := filepath.Dir(r.filename)
-
-	existing, err := filepath.Glob(filepath.Join(dir, r.filename+".*.gz"))
+	glob := filepath.Join(dir, filepath.Base(r.filename)+".*.gz")
+	existing, err := filepath.Glob(glob)
 	if err != nil {
 		return err
 	}
@@ -102,8 +102,7 @@ func (r *Rotator) rotate() error {
 		}
 	}
 
-	arcName := fmt.Sprintf("%s.%d.gz", r.filename, maxNum+1)
-	arcPath := filepath.Join(dir, arcName)
+	arcPath := fmt.Sprintf("%s.%d.gz", r.filename, maxNum+1)
 
 	arc, err := os.OpenFile(arcPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if err != nil {
