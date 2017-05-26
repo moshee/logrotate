@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // A Rotator reads log lines from an input source and writes them to a file,
@@ -24,6 +25,7 @@ type Rotator struct {
 	in        *bufio.Scanner
 	out       *os.File
 	tee       bool
+	wg        sync.WaitGroup
 }
 
 // New returns a new Rotator that is ready to start rotating logs from its
@@ -76,12 +78,14 @@ func (r *Rotator) Run() error {
 
 // Close closes the output logfile.
 func (r *Rotator) Close() error {
-	return r.out.Close()
+	err := r.out.Close()
+	r.wg.Wait()
+	return err
 }
 
 func (r *Rotator) rotate() error {
 	dir := filepath.Dir(r.filename)
-	glob := filepath.Join(dir, filepath.Base(r.filename)+".*.gz")
+	glob := filepath.Join(dir, filepath.Base(r.filename)+".*")
 	existing, err := filepath.Glob(glob)
 	if err != nil {
 		return err
@@ -90,10 +94,14 @@ func (r *Rotator) rotate() error {
 	maxNum := 0
 	for _, name := range existing {
 		parts := strings.Split(name, ".")
-		if len(parts) < 3 {
+		if len(parts) < 2 {
 			continue
 		}
-		num, err := strconv.Atoi(parts[len(parts)-2])
+		numIdx := len(parts) - 1
+		if parts[numIdx] == "gz" {
+			numIdx--
+		}
+		num, err := strconv.Atoi(parts[numIdx])
 		if err != nil {
 			continue
 		}
@@ -102,34 +110,54 @@ func (r *Rotator) rotate() error {
 		}
 	}
 
-	arcPath := fmt.Sprintf("%s.%d.gz", r.filename, maxNum+1)
+	err = r.out.Close()
+	if err != nil {
+		return err
+	}
+	rotname := fmt.Sprintf("%s.%d", r.filename, maxNum+1)
+	err = os.Rename(r.filename, rotname)
+	if err != nil {
+		return err
+	}
+	r.out, err = os.OpenFile(r.filename, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return err
+	}
+	r.size = 0
 
-	arc, err := os.OpenFile(arcPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	r.wg.Add(1)
+	go func() {
+		compress(rotname)
+		r.wg.Done()
+	}()
+
+	return nil
+}
+
+func compress(name string) (err error) {
+	f, err := os.Open(name)
 	if err != nil {
 		return err
 	}
 
-	r.out.Seek(0, os.SEEK_SET)
+	defer func() {
+		f.Close()
+		if err == nil {
+			os.Remove(name)
+		}
+	}()
+
+	arc, err := os.OpenFile(name+".gz", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+
 	z := gzip.NewWriter(arc)
-	if _, err = io.Copy(z, r.out); err != nil {
+	if _, err = io.Copy(z, f); err != nil {
 		return err
 	}
 	if err = z.Close(); err != nil {
 		return err
 	}
-	if err := arc.Close(); err != nil {
-		return err
-	}
-	if err = r.out.Close(); err != nil {
-		return err
-	}
-
-	r.out, err = os.OpenFile(r.filename, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0644)
-	if err != nil {
-		return err
-	}
-
-	r.size = 0
-
-	return nil
+	return arc.Close()
 }
