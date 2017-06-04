@@ -127,7 +127,10 @@ func (r *Rotator) rotate() error {
 
 	r.wg.Add(1)
 	go func() {
-		compress(rotname)
+		err := compress(rotname)
+		if err == nil {
+			os.Remove(rotname)
+		}
 		r.wg.Done()
 	}()
 
@@ -139,13 +142,7 @@ func compress(name string) (err error) {
 	if err != nil {
 		return err
 	}
-
-	defer func() {
-		f.Close()
-		if err == nil {
-			os.Remove(name)
-		}
-	}()
+	defer f.Close()
 
 	arc, err := os.OpenFile(name+".gz", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if err != nil {
